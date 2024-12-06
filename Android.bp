@@ -1,0 +1,40 @@
+cc_library_static {
+    name: "libublksrv",
+    srcs: [
+        "lib/ublksrv_cmd.c",
+        "lib/ublksrv_json.cpp",
+        "lib/ublksrv.c",
+        "lib/utils.c",
+        "lib/ublksrv_aio.c",
+    ],
+    local_include_dirs: [
+        "compat",
+        "lib",
+        "include",
+    ],
+    export_include_dirs: [
+        "include",
+    ],
+    cflags: [
+        "-DUBLKSRV_INTERNAL_H_",
+        "-D_GNU_SOURCE",
+        "-Wno-unused-parameter",
+        "-Wno-implicit-function-declaration",
+    ],
+    cpp_std: "c++20",
+    // Keep it pinned at C17 until http://b/379172126
+    c_std: "gnu17",
+    cppflags: [
+        "-fexceptions",
+    ],
+    static_libs: [
+        "liburing",
+    ],
+    sanitize: {
+        integer_overflow: true,
+    },
+    ramdisk_available: true,
+    vendor_ramdisk_available: true,
+    recovery_available: true,
+    compile_multilib: "both",
+}
