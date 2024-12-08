@@ -1,0 +1,18 @@
+name: "ublksrv"
+description:
+    "Userspace block driver (UBLK) infrastructure to create and manage block "
+    "devices in userspace."
+
+third_party {
+homepage: "https://github.com/ublk-org/ublksrv"
+  identifier {
+    type: "Git"
+    value: "https://github.com/ublk-org/ublksrv.git"
+    primary_source: true
+    version: "v1.2"
+  }
+  version: "v1.2"
+  last_upgrade_date { year: 2024 month: 10 day: 31 }
+  # Dual-licensed, using the least restrictive per go/thirdpartylicenses#same.
+  license_type: NOTICE
+}
