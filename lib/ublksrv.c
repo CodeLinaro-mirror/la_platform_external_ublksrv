@@ -69,8 +69,6 @@ static int __ublksrv_tgt_init(struct _ublksrv_dev *dev, const char *type_name,
 	if (strcmp(ops->name, type_name))
 		return -EINVAL;
 
-	if (!ops->init_tgt)
-		return -EINVAL;
 	if (!ops->handle_io_async)
 		return -EINVAL;
 	if (!ops->alloc_io_buf ^ !ops->free_io_buf)
@@ -79,9 +77,12 @@ static int __ublksrv_tgt_init(struct _ublksrv_dev *dev, const char *type_name,
 	optind = 0;     /* so that we can parse our arguments */
 	tgt->ops = ops;
 
-	if (!ublksrv_is_recovering(dev->ctrl_dev))
-		ret = ops->init_tgt(local_to_tdev(dev), type, argc, argv);
-	else {
+	if (!ublksrv_is_recovering(dev->ctrl_dev)) {
+		if (ops->init_tgt)
+			ret = ops->init_tgt(local_to_tdev(dev), type, argc, argv);
+		else
+			ret = 0;
+	} else {
 		if (ops->recovery_tgt)
 			ret = ops->recovery_tgt(local_to_tdev(dev), type);
 		else
@@ -330,6 +331,14 @@ static int ublksrv_queue_cmd_buf_sz(struct _ublksrv_queue *q)
 	return round_up(size, page_sz);
 }
 
+static int queue_max_cmd_buf_sz(void)
+{
+	unsigned int page_sz = getpagesize();
+
+	return round_up(UBLK_MAX_QUEUE_DEPTH * sizeof(struct ublksrv_io_desc),
+			page_sz);
+}
+
 int ublksrv_queue_unconsumed_cqes(const struct ublksrv_queue *tq)
 {
 	if (tq->ring_ptr)
@@ -400,11 +409,8 @@ static void ublksrv_set_sched_affinity(struct _ublksrv_dev *dev,
 	const struct ublksrv_ctrl_dev *cdev = dev->ctrl_dev;
 	unsigned dev_id = cdev->dev_info.dev_id;
 	cpu_set_t *cpuset = ublksrv_get_queue_affinity(cdev, q_id);
-	pthread_t thread = pthread_self();
-	int ret;
 
-	ret = pthread_setaffinity_np(thread, sizeof(cpu_set_t), cpuset);
-	if (ret)
+	if (sched_setaffinity(0, sizeof(cpu_set_t), cpuset) < 0)
 		ublk_err("ublk dev %u queue %u set affinity failed",
 				dev_id, q_id);
 }
@@ -509,6 +515,7 @@ static void ublksrv_calculate_depths(const struct _ublksrv_dev *dev, int
 const struct ublksrv_queue *ublksrv_queue_init(const struct ublksrv_dev *tdev,
 		unsigned short q_id, void *queue_data)
 {
+	struct io_uring_params p;
 	struct _ublksrv_dev *dev = tdev_to_local(tdev);
 	struct _ublksrv_queue *q;
 	const struct ublksrv_ctrl_dev *ctrl_dev = dev->ctrl_dev;
@@ -548,8 +555,7 @@ const struct ublksrv_queue *ublksrv_queue_init(const struct ublksrv_dev *tdev,
 	q->tid = ublksrv_gettid();
 
 	cmd_buf_size = ublksrv_queue_cmd_buf_sz(q);
-	off = UBLKSRV_CMD_BUF_OFFSET +
-		q_id * (UBLK_MAX_QUEUE_DEPTH * sizeof(struct ublksrv_io_desc));
+	off = UBLKSRV_CMD_BUF_OFFSET + q_id * queue_max_cmd_buf_sz();
 	q->io_cmd_buf = (char *)mmap(0, cmd_buf_size, PROT_READ,
 			MAP_SHARED | MAP_POPULATE, dev->cdev_fd, off);
 	if (q->io_cmd_buf == MAP_FAILED) {
@@ -595,8 +601,9 @@ skip_alloc_buf:
 		//ublk_assert(io_data_size ^ (unsigned long)q->ios[i].data.private_data);
 	}
 
-	ret = ublksrv_setup_ring(&q->ring, ring_depth, cq_depth,
+	ublksrv_setup_ring_params(&p, cq_depth,
 			IORING_SETUP_SQE128 | IORING_SETUP_COOP_TASKRUN);
+	ret = io_uring_queue_init_params(ring_depth, &q->ring, &p);
 	if (ret < 0) {
 		ublk_err("ublk dev %d queue %d setup io_uring failed %d",
 				q->dev->ctrl_dev->dev_info.dev_id, q->q_id, ret);
