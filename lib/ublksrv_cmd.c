@@ -4,7 +4,11 @@
 
 #include "ublksrv_priv.h"
 
+#ifdef UBLK_CONTROL
+#define	CTRL_DEV	UBLK_CONTROL
+#else
 #define	CTRL_DEV	"/dev/ublk-control"
+#endif
 
 #define CTRL_CMD_HAS_DATA	1
 #define CTRL_CMD_HAS_BUF	2
@@ -119,7 +123,9 @@ static int __ublksrv_ctrl_cmd(struct ublksrv_ctrl_dev *dev,
 		return ret;
 	}
 
-	ret = io_uring_wait_cqe(&dev->ring, &cqe);
+	do {
+		ret = io_uring_wait_cqe(&dev->ring, &cqe);
+	} while (ret == -EINTR);
 	if (ret < 0) {
 		fprintf(stderr, "wait cqe: %s\n", strerror(-ret));
 		return ret;
@@ -141,6 +147,7 @@ void ublksrv_ctrl_deinit(struct ublksrv_ctrl_dev *dev)
 
 struct ublksrv_ctrl_dev *ublksrv_ctrl_init(struct ublksrv_dev_data *data)
 {
+	struct io_uring_params p;
 	struct ublksrv_ctrl_dev *dev = (struct ublksrv_ctrl_dev *)calloc(1,
 			sizeof(*dev));
 	struct ublksrv_ctrl_dev_info *info = &dev->dev_info;
@@ -167,7 +174,8 @@ struct ublksrv_ctrl_dev *ublksrv_ctrl_init(struct ublksrv_dev_data *data)
 	dev->tgt_argv = data->tgt_argv;
 
 	/* 32 is enough to send ctrl commands */
-	ret = ublksrv_setup_ring(&dev->ring, 32, 32, IORING_SETUP_SQE128);
+	ublksrv_setup_ring_params(&p, 32, IORING_SETUP_SQE128);
+	ret = io_uring_queue_init_params(32, &dev->ring, &p);
 	if (ret < 0) {
 		fprintf(stderr, "queue_init: %s\n", strerror(-ret));
 		free(dev);
@@ -438,6 +446,8 @@ static const char *ublksrv_dev_state_desc(struct ublksrv_ctrl_dev *dev)
 		return "LIVE";
 	case UBLK_S_DEV_QUIESCED:
 		return "QUIESCED";
+	case UBLK_S_DEV_FAIL_IO:
+		return "FAIL_IO";
 	default:
 		return "UNKNOWN";
 	};

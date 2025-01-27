@@ -685,6 +685,7 @@ static int cmd_dev_add(int argc, char *argv[])
 		{ "uring_comp",		1,	NULL, 'u' },
 		{ "need_get_data",	1,	NULL, 'g' },
 		{ "user_recovery",	1,	NULL, 'r'},
+		{ "user_recovery_fail_io",	1,	NULL, 'e'},
 		{ "user_recovery_reissue",	1,	NULL, 'i'},
 		{ "debug_mask",	1,	NULL, 0},
 		{ "unprivileged",	0,	NULL, 0},
@@ -698,6 +699,7 @@ static int cmd_dev_add(int argc, char *argv[])
 	int uring_comp = 0;
 	int need_get_data = 0;
 	int user_recovery = 0;
+	int user_recovery_fail_io = 0;
 	int user_recovery_reissue = 0;
 	int unprivileged = 0;
 	const char *dump_buf;
@@ -711,7 +713,7 @@ static int cmd_dev_add(int argc, char *argv[])
 
 	mkpath(data.run_dir);
 
-	while ((opt = getopt_long(argc, argv, "-:t:n:d:q:u:g:r:i:z",
+	while ((opt = getopt_long(argc, argv, "-:t:n:d:q:u:g:r:e:i:z",
 				  longopts, &option_index)) != -1) {
 		switch (opt) {
 		case 'n':
@@ -737,6 +739,9 @@ static int cmd_dev_add(int argc, char *argv[])
 			break;
 		case 'r':
 			user_recovery = strtol(optarg, NULL, 10);
+			break;
+		case 'e':
+			user_recovery_fail_io = strtol(optarg, NULL, 10);
 			break;
 		case 'i':
 			user_recovery_reissue = strtol(optarg, NULL, 10);
@@ -765,6 +770,8 @@ static int cmd_dev_add(int argc, char *argv[])
 		data.flags |= UBLK_F_NEED_GET_DATA;
 	if (user_recovery)
 		data.flags |= UBLK_F_USER_RECOVERY;
+	if (user_recovery_fail_io)
+		data.flags |= UBLK_F_USER_RECOVERY | UBLK_F_USER_RECOVERY_FAIL_IO;
 	if (user_recovery_reissue)
 		data.flags |= UBLK_F_USER_RECOVERY | UBLK_F_USER_RECOVERY_REISSUE;
 	if (unprivileged)
@@ -789,7 +796,7 @@ static int cmd_dev_add(int argc, char *argv[])
 	dev = ublksrv_ctrl_init(&data);
 	if (!dev) {
 		fprintf(stderr, "can't init dev %d\n", data.dev_id);
-		return -ENODEV;
+		return -EOPNOTSUPP;
 	}
 
 	ret = ublksrv_ctrl_add_dev(dev);
@@ -871,8 +878,8 @@ static void cmd_dev_add_usage(const char *cmd)
 	printf("%s add -t %s\n", cmd, data.names);
 	printf("\t-n DEV_ID -q NR_HW_QUEUES -d QUEUE_DEPTH\n");
 	printf("\t-u URING_COMP -g NEED_GET_DATA -r USER_RECOVERY\n");
-	printf("\t-i USER_RECOVERY_REISSUE --debug_mask=0x{DBG_MASK}\n");
-	printf("\t--unprivileged\n\n");
+	printf("\t-i USER_RECOVERY_REISSUE -e USER_RECOVERY_FAIL_IO\n");
+	printf("\t--debug_mask=0x{DBG_MASK} --unprivileged\n\n");
 	printf("\ttarget specific command line:\n");
 	ublksrv_for_each_tgt_type(show_tgt_add_usage, NULL);
 }
@@ -887,6 +894,10 @@ static int __cmd_dev_del(int number, bool log, bool async)
 	};
 
 	dev = ublksrv_ctrl_init(&data);
+	if (!dev) {
+		fprintf(stderr, "ublksrv_ctrl_init failed id %d\n", number);
+		return -EOPNOTSUPP;
+	}
 
 	ret = ublksrv_ctrl_get_info(dev);
 	if (ret < 0) {
@@ -951,8 +962,11 @@ static int cmd_dev_del(int argc, char *argv[])
 	if (number >= 0)
 		return __cmd_dev_del(number, true, async);
 
-	for (i = 0; i < MAX_NR_UBLK_DEVS; i++)
+	for (i = 0; i < MAX_NR_UBLK_DEVS; i++) {
 		ret = __cmd_dev_del(i, false, async);
+		if (ret == -EOPNOTSUPP)
+			return ret;
+	}
 
 	return ret;
 }
@@ -971,6 +985,10 @@ static int list_one_dev(int number, bool log, bool verbose)
 	struct ublksrv_ctrl_dev *dev = ublksrv_ctrl_init(&data);
 	int ret;
 
+	if (!dev) {
+		fprintf(stderr, "ublksrv_ctrl_init failed id %d\n", number);
+		return -EOPNOTSUPP;
+	}
 	ret = ublksrv_ctrl_get_info(dev);
 	if (ret < 0) {
 		if (log)
@@ -1015,8 +1033,12 @@ static int cmd_list_dev_info(int argc, char *argv[])
 	if (number >= 0)
 		return list_one_dev(number, true, verbose);
 
-	for (i = 0; i < MAX_NR_UBLK_DEVS; i++)
-		list_one_dev(i, false, verbose);
+	for (i = 0; i < MAX_NR_UBLK_DEVS; i++) {
+		int ret = list_one_dev(i, false, verbose);
+
+		if (ret == -EOPNOTSUPP)
+			return ret;
+	}
 
 	return 0;
 }
@@ -1045,7 +1067,15 @@ static int cmd_dev_get_features(int argc, char *argv[])
 		[const_ilog2(UBLK_F_USER_RECOVERY_REISSUE)] = "RECOVERY_REISSUE",
 		[const_ilog2(UBLK_F_UNPRIVILEGED_DEV)] = "UNPRIVILEGED_DEV",
 		[const_ilog2(UBLK_F_CMD_IOCTL_ENCODE)] = "CMD_IOCTL_ENCODE",
+		[const_ilog2(UBLK_F_USER_COPY)] = "USER_COPY",
+		[const_ilog2(UBLK_F_ZONED)] = "ZONED",
+		[const_ilog2(UBLK_F_USER_RECOVERY_FAIL_IO)] = "RECOVERY_FAIL_IO",
 	};
+
+	if (!dev) {
+		fprintf(stderr, "ublksrv_ctrl_init failed id\n");
+		return -EOPNOTSUPP;
+	}
 
 	ret = ublksrv_ctrl_get_features(dev, &features);
 	if (!ret) {
@@ -1053,7 +1083,7 @@ static int cmd_dev_get_features(int argc, char *argv[])
 
 		printf("ublk_drv features: 0x%llx\n", features);
 
-		for (i = 0; i < sizeof(features); i++) {
+		for (i = 0; i < sizeof(features) * 8; i++) {
 			const char *feat;
 
 			if (!((1ULL << i)  & features))
@@ -1092,7 +1122,7 @@ static int __cmd_dev_user_recover(int number, bool verbose)
 	dev = ublksrv_ctrl_init(&data);
 	if (!dev) {
 		fprintf(stderr, "ublksrv_ctrl_init failure dev %d\n", number);
-		return -ENOMEM;
+		return -EOPNOTSUPP;
 	}
 
 	ret = ublksrv_ctrl_get_info(dev);
