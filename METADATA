@@ -1,18 +1,21 @@
-name: "ublksrv"
-description:
-    "Userspace block driver (UBLK) infrastructure to create and manage block "
-    "devices in userspace."
+# This project was upgraded with external_updater.
+# Usage: tools/external_updater/updater.sh update external/ublksrv
+# For more info, check https://cs.android.com/android/platform/superproject/main/+/main:tools/external_updater/README.md
 
+name: "ublksrv"
+description: "Userspace block driver (UBLK) infrastructure to create and manage block devices in userspace."
 third_party {
-homepage: "https://github.com/ublk-org/ublksrv"
+  license_type: NOTICE
+  last_upgrade_date {
+    year: 2025
+    month: 1
+    day: 21
+  }
+  homepage: "https://github.com/ublk-org/ublksrv"
   identifier {
     type: "Git"
     value: "https://github.com/ublk-org/ublksrv.git"
+    version: "v1.3"
     primary_source: true
-    version: "v1.2"
   }
-  version: "v1.2"
-  last_upgrade_date { year: 2024 month: 10 day: 31 }
-  # Dual-licensed, using the least restrictive per go/thirdpartylicenses#same.
-  license_type: NOTICE
 }
