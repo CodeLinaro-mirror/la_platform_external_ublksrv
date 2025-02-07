@@ -94,12 +94,9 @@ static int loop_setup_tgt(struct ublksrv_dev *dev, int type, bool recovery,
 static int loop_recovery_tgt(struct ublksrv_dev *dev, int type)
 {
 	const struct ublksrv_ctrl_dev *cdev = ublksrv_get_ctrl_dev(dev);
-	const struct ublksrv_ctrl_dev_info *info =
-		ublksrv_ctrl_get_dev_info(ublksrv_get_ctrl_dev(dev));
 	const char *jbuf = ublksrv_ctrl_get_recovery_jbuf(cdev);
 
 	ublk_assert(type == UBLKSRV_TGT_TYPE_LOOP);
-	ublk_assert(info->state == UBLK_S_DEV_QUIESCED);
 
 	return loop_setup_tgt(dev, type, true, jbuf);
 }
@@ -306,6 +303,7 @@ static void loop_queue_tgt_write(const struct ublksrv_queue *q,
 			buf, iod->nr_sectors << 9,
 			iod->start_sector << 9);
 		io_uring_sqe_set_flags(sqe2, IOSQE_FIXED_FILE);
+		sqe2->rw_flags |= RWF_DSYNC;
 		/* bit63 marks us as tgt io */
 		sqe2->user_data = build_user_data(tag, ublk_op, 0, 1);
 	} else {
@@ -318,6 +316,7 @@ static void loop_queue_tgt_write(const struct ublksrv_queue *q,
 			iod->nr_sectors << 9,
 			iod->start_sector << 9);
 		io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
+		sqe->rw_flags |= RWF_DSYNC;
 		/* bit63 marks us as tgt io */
 		sqe->user_data = build_user_data(tag, ublk_op, 0, 1);
 	}
