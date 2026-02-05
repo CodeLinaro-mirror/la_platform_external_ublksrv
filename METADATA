@@ -15,7 +15,7 @@ third_party {
   identifier {
     type: "Git"
     value: "https://github.com/ublk-org/ublksrv.git"
-    version: "28d4798a53f6456607d08bc15bbe90144a379586"
+    version: "a06deaedd3f16e96086e0f2cf75b7b24148a8c2f"
     closest_version: "v1.3"
     primary_source: true
   }
